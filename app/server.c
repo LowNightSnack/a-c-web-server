@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define BUF_SIZE 1024
+#define BUF_SIZE 2048
 
 char* directory = NULL;
 
@@ -107,7 +107,7 @@ int handle_http_request(int fd) {
   printf("Received data from the client: %s\n", buf);
 
   char* buffer = strdup(buf);
-  strtok(buffer, " ");
+  char* method = strtok(buffer, " ");
   char* path = strtok(NULL, " ");
   if (path == NULL) {
     printf("Reading path failed %s \n", strerror(errno));
@@ -155,21 +155,39 @@ int handle_http_request(int fd) {
     char* filename = strtok(NULL, "/");
     char file_path[strlen(directory) + strlen(filename) + 1];
     sprintf(file_path, "%s/%s", directory, filename);
-    if (access(file_path, F_OK) == 0) {
+
+    if (strncmp(method, "POST", 4) == 0) {
+      char* buf_dup = strdup(buf);
+      char* body = strstr(buf_dup, "\r\n\r\n");
+      if (body) {
+        body += 4;
+      }
       FILE* f;
-      f = fopen(file_path, "rb");
-      fseek(f, 0, SEEK_END);
-      long file_size = ftell(f);
-      fseek(f, 0, SEEK_SET);
-      char* file_buffer = malloc(file_size);
-      fread(file_buffer, 1, file_size, f);
+      f = fopen(file_path, "wb");
+      printf("filepath: %s, body: %s\n", file_path, body);
+      fwrite(body, sizeof(body[0]), strlen(body), f);
       fclose(f);
 
       char response[1024];
-      sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %ld\r\n\r\n%s", strlen(file_buffer), file_buffer);
+      sprintf(response, "HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 7\r\n\r\nCreated");
       bytes_sent = send(fd, response, strlen(response), 0);
     } else {
-      bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
+      if (access(file_path, F_OK) == 0) {
+        FILE* f;
+        f = fopen(file_path, "rb");
+        fseek(f, 0, SEEK_END);
+        long file_size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        char* file_buffer = malloc(file_size);
+        fread(file_buffer, 1, file_size, f);
+        fclose(f);
+
+        char response[1024];
+        sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %ld\r\n\r\n%s", strlen(file_buffer), file_buffer);
+        bytes_sent = send(fd, response, strlen(response), 0);
+      } else {
+        bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
+      }
     }
   } else {
     bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
