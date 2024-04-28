@@ -9,7 +9,7 @@
 
 #define BUF_SIZE 1024
 
-const char OK_RESPONSE[] = "HTTP/1.1 200 OK \r\n\r\n";
+const char OK_RESPONSE[] = "HTTP/1.1 200 OK\r\n\r\n";
 const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\n\r\n";
 
 int handle_http_request(int fd);
@@ -103,6 +103,14 @@ int handle_http_request(int fd) {
 
   if (strcmp(path, "/") == 0) {
     bytes_sent = send(fd, OK_RESPONSE, strlen(OK_RESPONSE), 0);
+  } else if (strncmp(path, "/echo", 5) == 0) {
+    strtok(path, "/");
+    char *echo_str = strtok(NULL, "/");
+    int echo_str_len = strlen(echo_str);
+
+    char response[70];
+    sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", echo_str_len, echo_str);
+    bytes_sent = send(fd, response, strlen(response), 0);
   } else {
     bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
   }
