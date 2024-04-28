@@ -7,6 +7,13 @@
 #include <errno.h>
 #include <unistd.h>
 
+#define BUF_SIZE 1024
+
+const char OK_RESPONSE[] = "HTTP/1.1 200 OK \r\n\r\n";
+const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\n\r\n";
+
+int handle_http_request(int fd);
+
 int main() {
 	// Disable output buffering
 	setbuf(stdout, NULL);
@@ -52,15 +59,57 @@ int main() {
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 
-	int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+	int new_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+  if (new_fd < 0) {
+    printf("Accepting connection failed %s \n", strerror(errno));
+    return 1;
+  }
+ 
 	printf("Client connected\n");
 
-  char response[] = "HTTP/1.1 200 OK \r\n\r\n";
+  int status = handle_http_request(new_fd);
 
-  send(conn, response, strlen(response), 0);
+  if (status != 0) {
+    printf("Handling http request failed %s \n", strerror(errno));
+    return 1;
+  }
 
-	close(server_fd);
+  close(server_fd);
 
 	return 0;
+}
+
+int handle_http_request(int fd) {
+  char buffer[BUF_SIZE];
+
+  memset(buffer, 0, BUF_SIZE);
+
+  ssize_t buffer_read = recv(fd, buffer, 1024, 0);
+  if (buffer_read < 0) {
+    printf("Receiving data failed %s \n", strerror(errno));
+    return 1;
+  }
+
+  printf("Received data from the client: %s\n", buffer);
+
+  strtok(buffer, " ");
+  char *path = strtok(NULL, " ");
+  if (path == NULL) {
+    printf("Reading path failed %s \n", strerror(errno));
+    return 1;
+  }
+  
+  ssize_t bytes_sent;
+
+  if (strcmp(path, "/") == 0) {
+    bytes_sent = send(fd, OK_RESPONSE, strlen(OK_RESPONSE), 0);
+  } else {
+    bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
+  }
+
+  if (bytes_sent < 0) {
+    printf("Sending data failed %s \n", strerror(errno));
+    return 1;
+  }
 }
 
