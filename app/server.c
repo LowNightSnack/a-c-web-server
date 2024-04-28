@@ -6,13 +6,15 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/epoll.h>
+#include <pthread.h>
 
 #define BUF_SIZE 1024
 
 const char OK_RESPONSE[] = "HTTP/1.1 200 OK\r\n\r\n";
 const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\n\r\n";
 
-int handle_http_request(int fd);
+void* handle_http_request(void* arg);
 
 int main() {
 	// Disable output buffering
@@ -57,21 +59,19 @@ int main() {
 	}
 
 	printf("Waiting for a client to connect...\n");
-	client_addr_len = sizeof(client_addr);
-
-	int new_fd = accept(server_fd, (struct sockaddr*) &client_addr, &client_addr_len);
-  if (new_fd < 0) {
-    printf("Accepting connection failed %s \n", strerror(errno));
-    return 1;
-  }
+  while(1) {
+	  client_addr_len = sizeof(client_addr);
+  	int client_fd = accept(server_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+    if (client_fd < 0) {
+      printf("Accepting connection failed %s \n", strerror(errno));
+      return 1;
+    }
  
-	printf("Client connected\n");
-
-  int status = handle_http_request(new_fd);
-
-  if (status != 0) {
-    printf("Handling http request failed %s \n", strerror(errno));
-    return 1;
+    printf("Client connected\n");
+    int* p_client_fd = malloc(sizeof(int));
+    *p_client_fd = client_fd;
+    pthread_t tid;
+    pthread_create(&tid, NULL, handle_http_request, (void *)p_client_fd);
   }
 
   close(server_fd);
@@ -79,7 +79,9 @@ int main() {
 	return 0;
 }
 
-int handle_http_request(int fd) {
+void* handle_http_request(void* arg) {
+  int fd = *(int*)arg;
+  free(arg);
   char buf[BUF_SIZE];
 
   memset(buf, 0, BUF_SIZE);
@@ -87,7 +89,7 @@ int handle_http_request(int fd) {
   ssize_t buffer_read = recv(fd, buf, 1024, 0);
   if (buffer_read < 0) {
     printf("Receiving data failed %s \n", strerror(errno));
-    return 1;
+    return NULL;
   }
 
   printf("Received data from the client: %s\n", buf);
@@ -97,7 +99,7 @@ int handle_http_request(int fd) {
   char* path = strtok(NULL, " ");
   if (path == NULL) {
     printf("Reading path failed %s \n", strerror(errno));
-    return 1;
+    return NULL;
   }
   
   ssize_t bytes_sent;
@@ -119,7 +121,6 @@ int handle_http_request(int fd) {
     int user_agent_str_len = 0;
     
     while (header_line != NULL) {
-      printf("while loop %s\n", header_line);
       if (strncmp(header_line, "User-Agent", 10) == 0) {
         strtok(header_line, " ");
         user_agent_str = strtok(NULL, " ");
@@ -131,7 +132,7 @@ int handle_http_request(int fd) {
     
     if (user_agent_str == NULL) {
       printf("Parsing user agent failed %s \n", strerror(errno));
-      return 1;
+      return NULL;
     }
     
     char response[80];
@@ -143,9 +144,9 @@ int handle_http_request(int fd) {
 
   if (bytes_sent < 0) {
     printf("Sending data failed %s \n", strerror(errno));
-    return 1;
+    return NULL;
   }
  
-  return 0;
+  return NULL;
 }
 
