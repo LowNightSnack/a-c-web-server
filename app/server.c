@@ -59,7 +59,7 @@ int main() {
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 
-	int new_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+	int new_fd = accept(server_fd, (struct sockaddr*) &client_addr, &client_addr_len);
   if (new_fd < 0) {
     printf("Accepting connection failed %s \n", strerror(errno));
     return 1;
@@ -80,20 +80,21 @@ int main() {
 }
 
 int handle_http_request(int fd) {
-  char buffer[BUF_SIZE];
+  char buf[BUF_SIZE];
 
-  memset(buffer, 0, BUF_SIZE);
+  memset(buf, 0, BUF_SIZE);
 
-  ssize_t buffer_read = recv(fd, buffer, 1024, 0);
+  ssize_t buffer_read = recv(fd, buf, 1024, 0);
   if (buffer_read < 0) {
     printf("Receiving data failed %s \n", strerror(errno));
     return 1;
   }
 
-  printf("Received data from the client: %s\n", buffer);
+  printf("Received data from the client: %s\n", buf);
 
+  char* buffer = strdup(buf);
   strtok(buffer, " ");
-  char *path = strtok(NULL, " ");
+  char* path = strtok(NULL, " ");
   if (path == NULL) {
     printf("Reading path failed %s \n", strerror(errno));
     return 1;
@@ -105,11 +106,36 @@ int handle_http_request(int fd) {
     bytes_sent = send(fd, OK_RESPONSE, strlen(OK_RESPONSE), 0);
   } else if (strncmp(path, "/echo", 5) == 0) {
     strtok(path, "/");
-    char *echo_str = strtok(NULL, "/");
+    char* echo_str = strtok(NULL, "/");
     int echo_str_len = strlen(echo_str);
 
     char response[70];
     sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", echo_str_len, echo_str);
+    bytes_sent = send(fd, response, strlen(response), 0);
+  } else if (strncmp(path, "/user-agent", 11) == 0) {
+    char* buf_dup = strdup(buf);
+    char* header_line = strtok(buf_dup, "\r\n");
+    char* user_agent_str = NULL;
+    int user_agent_str_len = 0;
+    
+    while (header_line != NULL) {
+      printf("while loop %s\n", header_line);
+      if (strncmp(header_line, "User-Agent", 10) == 0) {
+        strtok(header_line, " ");
+        user_agent_str = strtok(NULL, " ");
+        user_agent_str_len = strlen(user_agent_str);
+        break;
+      }
+      header_line = strtok(NULL, "\r\n");
+    }
+    
+    if (user_agent_str == NULL) {
+      printf("Parsing user agent failed %s \n", strerror(errno));
+      return 1;
+    }
+    
+    char response[80];
+    sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", user_agent_str_len, user_agent_str);
     bytes_sent = send(fd, response, strlen(response), 0);
   } else {
     bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
@@ -119,5 +145,7 @@ int handle_http_request(int fd) {
     printf("Sending data failed %s \n", strerror(errno));
     return 1;
   }
+ 
+  return 0;
 }
 
