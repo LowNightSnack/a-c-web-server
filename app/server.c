@@ -6,17 +6,19 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-#include <sys/epoll.h>
 #include <pthread.h>
 
 #define BUF_SIZE 1024
 
-const char OK_RESPONSE[] = "HTTP/1.1 200 OK\r\n\r\n";
-const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\n\r\n";
+char* directory = NULL;
 
-void* handle_http_request(void* arg);
+const char OK_RESPONSE[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 6\r\n\r\nSuccess";
+const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot Found";
 
-int main() {
+void* handle_connection(void* arg);
+int handle_http_request(int fd);
+
+int main(int argc, char *argv[]) {
 	// Disable output buffering
 	setbuf(stdout, NULL);
 
@@ -25,8 +27,14 @@ int main() {
 
 	// Uncomment this block to pass the first stage
 
-	int server_fd, client_addr_len;
-	struct sockaddr_in client_addr;
+  for (int i = 0; i < argc; i++) {
+    if (strcmp(argv[i], "--directory") == 0) {
+      directory = argv[i+1];
+      break;
+    }
+  }
+
+	int server_fd;
 
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_fd == -1) {
@@ -60,18 +68,18 @@ int main() {
 
 	printf("Waiting for a client to connect...\n");
   while(1) {
-	  client_addr_len = sizeof(client_addr);
-  	int client_fd = accept(server_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+    struct sockaddr_in client_addr;
+    int client_addr_len = sizeof(client_addr);
+    int client_fd = accept(server_fd, (struct sockaddr*) &client_addr, &client_addr_len);
     if (client_fd < 0) {
       printf("Accepting connection failed %s \n", strerror(errno));
-      return 1;
+      return -1;
     }
- 
     printf("Client connected\n");
     int* p_client_fd = malloc(sizeof(int));
     *p_client_fd = client_fd;
     pthread_t tid;
-    pthread_create(&tid, NULL, handle_http_request, (void *)p_client_fd);
+    pthread_create(&tid, NULL, handle_connection, (void *)p_client_fd);
   }
 
   close(server_fd);
@@ -79,9 +87,13 @@ int main() {
 	return 0;
 }
 
-void* handle_http_request(void* arg) {
+void* handle_connection(void* arg) {
   int fd = *(int*)arg;
   free(arg);
+  int status = handle_http_request(fd);
+}
+
+int handle_http_request(int fd) {
   char buf[BUF_SIZE];
 
   memset(buf, 0, BUF_SIZE);
@@ -89,7 +101,7 @@ void* handle_http_request(void* arg) {
   ssize_t buffer_read = recv(fd, buf, 1024, 0);
   if (buffer_read < 0) {
     printf("Receiving data failed %s \n", strerror(errno));
-    return NULL;
+    return -1;
   }
 
   printf("Received data from the client: %s\n", buf);
@@ -99,7 +111,7 @@ void* handle_http_request(void* arg) {
   char* path = strtok(NULL, " ");
   if (path == NULL) {
     printf("Reading path failed %s \n", strerror(errno));
-    return NULL;
+    return -1;
   }
   
   ssize_t bytes_sent;
@@ -132,21 +144,42 @@ void* handle_http_request(void* arg) {
     
     if (user_agent_str == NULL) {
       printf("Parsing user agent failed %s \n", strerror(errno));
-      return NULL;
+      return -1;
     }
     
     char response[80];
     sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", user_agent_str_len, user_agent_str);
     bytes_sent = send(fd, response, strlen(response), 0);
+  } else if (strncmp(path, "/files", 6) == 0) {
+    strtok(path, "/");
+    char* filename = strtok(NULL, "/");
+    char file_path[strlen(directory) + strlen(filename) + 1];
+    sprintf(file_path, "%s/%s", directory, filename);
+    if (access(file_path, F_OK) == 0) {
+      FILE* f;
+      f = fopen(file_path, "rb");
+      fseek(f, 0, SEEK_END);
+      long file_size = ftell(f);
+      fseek(f, 0, SEEK_SET);
+      char* file_buffer = malloc(file_size);
+      fread(file_buffer, 1, file_size, f);
+      fclose(f);
+
+      char response[1024];
+      sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %ld\r\n\r\n%s", strlen(file_buffer), file_buffer);
+      bytes_sent = send(fd, response, strlen(response), 0);
+    } else {
+      bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
+    }
   } else {
     bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
   }
 
   if (bytes_sent < 0) {
     printf("Sending data failed %s \n", strerror(errno));
-    return NULL;
+    return -1;
   }
  
-  return NULL;
+  return 0;
 }
 
