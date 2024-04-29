@@ -12,6 +12,17 @@
 
 char* directory = NULL;
 
+const char SEPERATOR[] = "\r\n";
+const char OK_RESPONSE_200_HEAD[] = "HTTP/1.1 200 OK";
+const char CREATED_RESPONSE_201_HEAD[] = "HTTP/1.1 201 CREATED";
+const char NOT_FOUND_404_HEAD[] = "HTTP/1.1 404 NOT FOUND";
+const char CONTENT_TYPE_HEAD[] = "Content-Type: ";
+const char CONTENT_LENGTH_HEAD[] = "Content-Length: ";
+const char SUCCESS_MSG[] = "Success";
+const char NOT_FOUND_MSG[] = "Not Found";
+const char TEXT_PLAIN = "text/plain";
+const char OCTET_STREAM = "application/octet-stream";
+
 const char OK_RESPONSE[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 6\r\n\r\nSuccess";
 const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot Found";
 
@@ -19,13 +30,13 @@ void* handle_connection(void* arg);
 int handle_http_request(int fd);
 
 int main(int argc, char *argv[]) {
-	// Disable output buffering
-	setbuf(stdout, NULL);
+  // Disable output buffering
+  setbuf(stdout, NULL);
 
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	printf("Logs from your program will appear here!\n");
+  // You can use print statements as follows for debugging, they'll be visible when running tests.
+  printf("Logs from your program will appear here!\n");
 
-	// Uncomment this block to pass the first stage
+  // Uncomment this block to pass the first stage
 
   for (int i = 0; i < argc; i++) {
     if (strcmp(argv[i], "--directory") == 0) {
@@ -34,39 +45,40 @@ int main(int argc, char *argv[]) {
     }
   }
 
-	int server_fd;
+  int server_fd;
 
-	server_fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (server_fd == -1) {
-		printf("Socket creation failed: %s...\n", strerror(errno));
-	  return 1;
-	}
-	//
-	// // Since the tester restarts your program quite often, setting REUSE_PORT
-	// // ensures that we don't run into 'Address already in use' errors
-	int reuse = 1;
-	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) {
-		printf("SO_REUSEPORT failed: %s \n", strerror(errno));
-		return 1;
-	}
+  server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (server_fd == -1) {
+    printf("Socket creation failed: %s...\n", strerror(errno));
+    return 1;
+  }
+  //
+  // // Since the tester restarts your program quite often, setting REUSE_PORT
+  // // ensures that we don't run into 'Address already in use' errors
 
-	struct sockaddr_in serv_addr = { .sin_family = AF_INET ,
-									 .sin_port = htons(4221),
-									 .sin_addr = { htonl(INADDR_ANY) },
-									};
+  int reuse = 1;
+  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) {
+    printf("SO_REUSEPORT failed: %s \n", strerror(errno));
+    return 1;
+  }
 
-	if (bind(server_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) != 0) {
-		printf("Bind failed: %s \n", strerror(errno));
-		return 1;
-	}
+  struct sockaddr_in serv_addr = { .sin_family = AF_INET ,
+                   .sin_port = htons(4221),
+                   .sin_addr = { htonl(INADDR_ANY) },
+                   };
 
-	int connection_backlog = 5;
-	if (listen(server_fd, connection_backlog) != 0) {
-		printf("Listen failed: %s \n", strerror(errno));
-		return 1;
-	}
+  if (bind(server_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) != 0) {
+    printf("Bind failed: %s \n", strerror(errno));
+    return 1;
+  }
 
-	printf("Waiting for a client to connect...\n");
+  int connection_backlog = 5;
+  if (listen(server_fd, connection_backlog) != 0) {
+    printf("Listen failed: %s \n", strerror(errno));
+    return 1;
+  }
+
+  printf("Waiting for a client to connect...\n");
   while(1) {
     struct sockaddr_in client_addr;
     int client_addr_len = sizeof(client_addr);
@@ -84,7 +96,7 @@ int main(int argc, char *argv[]) {
 
   close(server_fd);
 
-	return 0;
+  return 0;
 }
 
 void* handle_connection(void* arg) {
