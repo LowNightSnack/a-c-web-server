@@ -27,7 +27,11 @@ const char OK_RESPONSE[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConte
 const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot Found";
 
 void* handle_connection(void* arg);
-int handle_http_request(int fd);
+ssize_t index_route_get();
+ssize_t echo_route_get();
+ssize_t user_agent_route_get();
+ssize_t files_route_get();
+ssize_t files_route_post();
 
 int main(int argc, char *argv[]) {
   // Disable output buffering
@@ -102,10 +106,6 @@ int main(int argc, char *argv[]) {
 void* handle_connection(void* arg) {
   int fd = *(int*)arg;
   free(arg);
-  int status = handle_http_request(fd);
-}
-
-int handle_http_request(int fd) {
   char buf[BUF_SIZE];
 
   memset(buf, 0, BUF_SIZE);
@@ -129,7 +129,7 @@ int handle_http_request(int fd) {
   ssize_t bytes_sent;
 
   if (strcmp(path, "/") == 0) {
-    bytes_sent = send(fd, OK_RESPONSE, strlen(OK_RESPONSE), 0);
+    bytes_sent = inde;
   } else if (strncmp(path, "/echo", 5) == 0) {
     strtok(path, "/");
     char* echo_str = strtok(NULL, "/");
@@ -211,5 +211,9 @@ int handle_http_request(int fd) {
   }
  
   return 0;
+}
+
+ssize_t index_route_get() {
+  return send(fd, OK_RESPONSE, strlen(OK_RESPONSE), 0);
 }
 
