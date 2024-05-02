@@ -20,28 +20,22 @@ const char CONTENT_TYPE_HEAD[] = "Content-Type: ";
 const char CONTENT_LENGTH_HEAD[] = "Content-Length: ";
 const char SUCCESS_MSG[] = "Success";
 const char NOT_FOUND_MSG[] = "Not Found";
-const char TEXT_PLAIN = "text/plain";
-const char OCTET_STREAM = "application/octet-stream";
+const char CREATED_MSG[] = "Created";
+const char TEXT_PLAIN[] = "text/plain";
+const char OCTET_STREAM[] = "application/octet-stream";
 
 const char OK_RESPONSE[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 6\r\n\r\nSuccess";
 const char NOT_FOUND_RESPONSE[] = "HTTP/1.1 404 NOT FOUND\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot Found";
 
 void* handle_connection(void* arg);
-ssize_t index_route_get();
-ssize_t echo_route_get();
-ssize_t user_agent_route_get();
-ssize_t files_route_get();
-ssize_t files_route_post();
+ssize_t index_route_get(int fd);
+ssize_t echo_route_get(int fd, char* echo_str);
+ssize_t user_agent_route_get(int fd, char* user_agent_str);
+ssize_t files_route_get(int fd, char* filepath);
+ssize_t files_route_post(int fd, char* filepath, char* content);
 
 int main(int argc, char *argv[]) {
-  // Disable output buffering
-  setbuf(stdout, NULL);
-
-  // You can use print statements as follows for debugging, they'll be visible when running tests.
-  printf("Logs from your program will appear here!\n");
-
-  // Uncomment this block to pass the first stage
-
+  // look for directory flag
   for (int i = 0; i < argc; i++) {
     if (strcmp(argv[i], "--directory") == 0) {
       directory = argv[i+1];
@@ -56,9 +50,6 @@ int main(int argc, char *argv[]) {
     printf("Socket creation failed: %s...\n", strerror(errno));
     return 1;
   }
-  //
-  // // Since the tester restarts your program quite often, setting REUSE_PORT
-  // // ensures that we don't run into 'Address already in use' errors
 
   int reuse = 1;
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) {
@@ -113,7 +104,7 @@ void* handle_connection(void* arg) {
   ssize_t buffer_read = recv(fd, buf, 1024, 0);
   if (buffer_read < 0) {
     printf("Receiving data failed %s \n", strerror(errno));
-    return -1;
+    return NULL;
   }
 
   printf("Received data from the client: %s\n", buf);
@@ -123,22 +114,20 @@ void* handle_connection(void* arg) {
   char* path = strtok(NULL, " ");
   if (path == NULL) {
     printf("Reading path failed %s \n", strerror(errno));
-    return -1;
+    return NULL;
   }
   
   ssize_t bytes_sent;
 
-  if (strcmp(path, "/") == 0) {
-    bytes_sent = inde;
-  } else if (strncmp(path, "/echo", 5) == 0) {
+  if (strncmp(method, "GET", 3) == 0 && strcmp(path, "/") == 0) {
+    bytes_sent = index_route_get(fd);
+  } else if (strncmp(method, "GET", 3) == 0 && strncmp(path, "/echo", 5) == 0) {
     strtok(path, "/");
     char* echo_str = strtok(NULL, "/");
     int echo_str_len = strlen(echo_str);
 
-    char response[70];
-    sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", echo_str_len, echo_str);
-    bytes_sent = send(fd, response, strlen(response), 0);
-  } else if (strncmp(path, "/user-agent", 11) == 0) {
+    bytes_sent = echo_route_get(fd, echo_str); 
+  } else if (strncmp(method, "GET", 3) == 0 && strncmp(path, "/user-agent", 11) == 0) {
     char* buf_dup = strdup(buf);
     char* header_line = strtok(buf_dup, "\r\n");
     char* user_agent_str = NULL;
@@ -156,64 +145,84 @@ void* handle_connection(void* arg) {
     
     if (user_agent_str == NULL) {
       printf("Parsing user agent failed %s \n", strerror(errno));
-      return -1;
+      return NULL;
     }
     
-    char response[80];
-    sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", user_agent_str_len, user_agent_str);
-    bytes_sent = send(fd, response, strlen(response), 0);
-  } else if (strncmp(path, "/files", 6) == 0) {
+    bytes_sent = user_agent_route_get(fd, user_agent_str);
+  } else if (strncmp(method, "GET", 3) == 0 && strncmp(path, "/files", 6) == 0) {
     strtok(path, "/");
     char* filename = strtok(NULL, "/");
     char file_path[strlen(directory) + strlen(filename) + 1];
     sprintf(file_path, "%s/%s", directory, filename);
-
-    if (strncmp(method, "POST", 4) == 0) {
-      char* buf_dup = strdup(buf);
-      char* body = strstr(buf_dup, "\r\n\r\n");
-      if (body) {
-        body += 4;
-      }
-      FILE* f;
-      f = fopen(file_path, "wb");
-      printf("filepath: %s, body: %s\n", file_path, body);
-      fwrite(body, sizeof(body[0]), strlen(body), f);
-      fclose(f);
-
-      char response[1024];
-      sprintf(response, "HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 7\r\n\r\nCreated");
-      bytes_sent = send(fd, response, strlen(response), 0);
-    } else {
-      if (access(file_path, F_OK) == 0) {
-        FILE* f;
-        f = fopen(file_path, "rb");
-        fseek(f, 0, SEEK_END);
-        long file_size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        char* file_buffer = malloc(file_size);
-        fread(file_buffer, 1, file_size, f);
-        fclose(f);
-
-        char response[1024];
-        sprintf(response, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %ld\r\n\r\n%s", strlen(file_buffer), file_buffer);
-        bytes_sent = send(fd, response, strlen(response), 0);
-      } else {
-        bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
-      }
+    
+    bytes_sent = files_route_get(fd, file_path);
+  } else if (strncmp(method, "POST", 4) == 0 && strncmp(path, "/files", 6) == 0) {
+    strtok(path, "/");
+    char* filename = strtok(NULL, "/");
+    char file_path[strlen(directory) + strlen(filename) + 1];
+    sprintf(file_path, "%s/%s", directory, filename);
+    char* buf_dup = strdup(buf);
+    char* body = strstr(buf_dup, "\r\n\r\n");
+    if (body) {
+      body += 4;
     }
+    
+    bytes_sent = files_route_post(fd, file_path, body);
   } else {
     bytes_sent = send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
   }
 
   if (bytes_sent < 0) {
     printf("Sending data failed %s \n", strerror(errno));
-    return -1;
+    return NULL;
   }
  
-  return 0;
+  return NULL;
 }
 
-ssize_t index_route_get() {
+ssize_t index_route_get(int fd) {
   return send(fd, OK_RESPONSE, strlen(OK_RESPONSE), 0);
 }
 
+ssize_t echo_route_get(int fd, char* echo_str) {
+  char response[70];
+  sprintf(response, "%s%s%s%s%s%s%ld%s%s%s", OK_RESPONSE_200_HEAD, SEPERATOR, CONTENT_TYPE_HEAD, TEXT_PLAIN, SEPERATOR, CONTENT_LENGTH_HEAD, strlen(echo_str), SEPERATOR, SEPERATOR, echo_str);
+  return send(fd, response, strlen(response), 0);
+}
+
+ssize_t user_agent_route_get(int fd, char* user_agent_str) {
+  char response[100];
+  sprintf(response, "%s%s%s%s%s%s%ld%s%s%s", OK_RESPONSE_200_HEAD, SEPERATOR, CONTENT_TYPE_HEAD, TEXT_PLAIN, SEPERATOR, CONTENT_LENGTH_HEAD, strlen(user_agent_str), SEPERATOR, SEPERATOR, user_agent_str);
+  return send(fd, response, strlen(response), 0);
+}
+
+ssize_t files_route_get(int fd, char* filepath) {
+  if (access(filepath, F_OK) == 0) {
+    FILE* f;
+    f = fopen(filepath, "rb");
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* file_buffer = malloc(file_size);
+    fread(file_buffer, 1, file_size, f);
+    fclose(f);
+
+    char response[1024];
+    sprintf(response, "%s%s%s%s%s%s%ld%s%s%s", OK_RESPONSE_200_HEAD, SEPERATOR, CONTENT_TYPE_HEAD, OCTET_STREAM, SEPERATOR, CONTENT_LENGTH_HEAD, strlen(file_buffer), SEPERATOR, SEPERATOR, file_buffer);
+    return send(fd, response, strlen(response), 0);
+  }
+  return send(fd, NOT_FOUND_RESPONSE, strlen(NOT_FOUND_RESPONSE), 0);
+}
+
+ssize_t files_route_post(int fd, char* filepath, char* content) {
+  FILE* f;
+  f = fopen(filepath, "wb");
+  printf("filepath: %s, body: %s\n", filepath, content);
+  fwrite(content, sizeof(content[0]), strlen(content), f);
+  fclose(f);
+
+  char response[200];
+  sprintf(response, "%s%s%s%s%s%s%ld%s%s%s", CREATED_RESPONSE_201_HEAD, SEPERATOR, CONTENT_TYPE_HEAD, TEXT_PLAIN, SEPERATOR, CONTENT_LENGTH_HEAD, strlen(CREATED_MSG), SEPERATOR, SEPERATOR, CREATED_MSG);
+
+  return send(fd, response, strlen(response), 0);
+}
